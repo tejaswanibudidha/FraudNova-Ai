@@ -4,6 +4,7 @@ from flask_session import Session
 from datetime import datetime, timedelta
 from functools import wraps
 import os
+import secrets
 import sys
 
 # Import models and database
@@ -26,7 +27,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = SQLALCHEMY_TRACK_MODIFICATIONS
 
 # Session configuration - CRITICAL for cookies to work
-app.config['SECRET_KEY'] = 'fraudnova-secret-key-dev-12345'
+app.config['SECRET_KEY'] = os.environ.get('SESSION_SECRET_KEY') or secrets.token_hex(32)
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_FILE_DIR'] = os.path.join(os.path.dirname(__file__), 'flask_sessions')
 app.config['SESSION_PERMANENT'] = True

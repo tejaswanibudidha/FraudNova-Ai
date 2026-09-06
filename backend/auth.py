@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 import os
+import secrets
 import jwt
 from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, User
 
-JWT_SECRET = os.environ.get('JWT_SECRET_KEY', 'fraudnova-jwt-secret-key-987654321')
+JWT_SECRET = os.environ.get('JWT_SECRET_KEY') or secrets.token_hex(32)
 JWT_ALGORITHM = 'HS256'
 JWT_EXPIRATION_HOURS = 24
 
@@ -115,4 +116,3 @@ def authenticate_user(username, password):
     if user and verify_password(user.password_hash, password):
         return user
     return None
-
