@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { login } from '../services/api'
-import { Shield, User, Lock, Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react'
+import { User, Lock, Eye, EyeOff, LogIn, AlertCircle } from 'lucide-react'
+import FraudNovaLogo from '../components/FraudNovaLogo'
 
 export default function Login() {
   const [username, setUsername] = useState('admin')
@@ -51,16 +52,8 @@ export default function Login() {
       <div className="w-full max-w-md relative z-10 my-8">
         <div className="bg-[#0e172a]/85 backdrop-blur-xl border border-white/10 rounded-2xl p-6 sm:p-8 shadow-2xl shadow-cyan-950/30">
           {/* Header */}
-          <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 mb-3">
-              <Shield size={28} className="animate-pulse" />
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
-              FraudNova AI
-            </h1>
-            <p className="text-sm text-gray-400 mt-1">
-              Quantum-Enhanced Financial Fraud Detection
-            </p>
+          <div className="mb-7">
+            <FraudNovaLogo size="lg" />
           </div>
 
           {/* Feedback error alert */}

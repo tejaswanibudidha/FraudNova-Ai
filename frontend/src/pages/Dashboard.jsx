@@ -108,7 +108,7 @@ export default function Dashboard() {
 
             <div className="flex items-center gap-3 self-stretch md:self-auto">
               <button
-                onClick={() => navigate('/predict')}
+                onClick={() => navigate('/detect')}
                 className="btn-bright-cyan flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm tracking-wide shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:shadow-[0_0_30px_rgba(6,182,212,0.6)] w-full md:w-auto"
               >
                 <Sparkles size={16} />

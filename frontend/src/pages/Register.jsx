@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { register } from '../services/api'
-import { Shield, User, Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react'
+import { User, Mail, Lock, Eye, EyeOff, ArrowRight, CheckCircle2, AlertCircle } from 'lucide-react'
+import FraudNovaLogo from '../components/FraudNovaLogo'
 
 export default function Register() {
   const navigate = useNavigate()
@@ -98,9 +99,7 @@ export default function Register() {
         <div className="bg-[#0e172a]/90 backdrop-blur-2xl border border-cyan-500/30 rounded-2xl p-6 sm:p-8 shadow-2xl shadow-cyan-950/40">
           {/* Header */}
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-cyan-500/15 border border-cyan-400/40 text-cyan-300 mb-3 shadow-[0_0_20px_rgba(6,182,212,0.3)]">
-              <Shield size={28} className="text-cyan-400" />
-            </div>
+            <FraudNovaLogo size="lg" className="mb-5" />
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
               Create Account
             </h1>

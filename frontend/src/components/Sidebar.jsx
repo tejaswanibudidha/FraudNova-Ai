@@ -5,11 +5,11 @@ import {
   ShieldAlert, 
   History, 
   Cpu, 
-  LogOut, 
-  Sparkles,
+  LogOut,
   Zap
 } from 'lucide-react'
 import { logout, getStoredUser } from '../services/api'
+import FraudNovaLogo from './FraudNovaLogo'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, badge: null },
@@ -37,21 +37,8 @@ export default function Sidebar() {
     <aside className="w-72 min-h-screen bg-[#091122] border-r border-white/10 flex flex-col justify-between p-5 select-none shrink-0 sticky top-0 h-screen overflow-y-auto">
       {/* Top Branding */}
       <div>
-        <div className="flex items-center gap-3 px-2 py-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-slate-950 shadow-[0_0_18px_rgba(6,182,212,0.5)]">
-            <Sparkles size={22} className="stroke-[2.5]" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-extrabold text-lg text-white tracking-tight">
-                Fraud<span className="text-cyan-400">Nova</span>
-              </h1>
-              <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                PRO
-              </span>
-            </div>
-            <p className="text-[11px] text-gray-400 font-medium">Quantum Defense System</p>
-          </div>
+        <div className="px-2 py-3 mb-6">
+          <FraudNovaLogo size="sm" />
         </div>
 
         {/* Navigation Items */}
