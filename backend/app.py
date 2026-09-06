@@ -8,7 +8,14 @@ import sys
 
 # Import models and database
 from models import db, User, Transaction, ShapExplanation
-from auth import authenticate_user, hash_password, create_or_get_admin_user
+from auth import (
+    authenticate_user, 
+    hash_password, 
+    create_or_get_admin_user,
+    generate_jwt_token,
+    verify_jwt_token,
+    register_user
+)
 from database import SQLALCHEMY_DATABASE_URI, SQLALCHEMY_TRACK_MODIFICATIONS
 
 # Initialize Flask app
@@ -39,7 +46,7 @@ Session(app)
 db.init_app(app)
 
 # Enable CORS with credentials support - allow multiple ports for dev
-CORS(app, resources={r"/api/*": {
+CORS(app, supports_credentials=True, resources={r"/api/*": {
     "origins": [
         "http://localhost:5173", 
         "http://localhost:5174",
@@ -54,21 +61,34 @@ CORS(app, resources={r"/api/*": {
 
 # ==================== Authentication Helpers ====================
 
-def login_required(f):
-    """Decorator to check if user is logged in."""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return jsonify({'success': False, 'message': 'Not authenticated'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
+def get_token_from_header():
+    """Extract Bearer token from Authorization header."""
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        return auth_header.split(' ', 1)[1].strip()
+    return None
 
 
 def get_current_user():
-    """Get currently logged-in user from session."""
-    if 'user_id' in session:
-        return User.query.get(session['user_id'])
+    """Get currently logged-in user from JWT Bearer token."""
+    token = get_token_from_header()
+    if token:
+        payload = verify_jwt_token(token)
+        if payload and 'user_id' in payload:
+            return User.query.get(payload['user_id'])
     return None
+
+
+def login_required(f):
+    """Decorator to check if user is authenticated via JWT Bearer token."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user = get_current_user()
+        if not user:
+            return jsonify({'success': False, 'message': 'Authentication required. Please log in.'}), 401
+        request.current_user = user
+        return f(*args, **kwargs)
+    return decorated_function
 
 
 # ==================== Helper Functions ====================
@@ -149,9 +169,34 @@ def health():
     return jsonify({"status": "ok", "service": "FraudNova AI Backend"})
 
 
+@app.route('/api/register', methods=['POST'])
+def register():
+    """Register a new user account and return JWT token."""
+    data = request.get_json() or {}
+    email = data.get('email') or data.get('mail')
+    full_name = data.get('full_name') or data.get('name')
+    password = data.get('password') or data.get('pass')
+    username = data.get('username')
+    role = data.get('role', 'analyst')
+    
+    user, error_msg = register_user(username=username, email=email, password=password, full_name=full_name, role=role)
+    if error_msg:
+        return jsonify({'success': False, 'message': error_msg}), 400
+    
+    # Generate JWT token for immediate access
+    token = generate_jwt_token(user)
+    
+    return jsonify({
+        'success': True,
+        'message': 'Account created successfully.',
+        'token': token,
+        'user': user.to_dict()
+    }), 201
+
+
 @app.route('/api/login', methods=['POST'])
 def login():
-    """Authenticate user and create session."""
+    """Authenticate user and return JWT token."""
     data = request.get_json() or {}
     username = data.get('username')
     password = data.get('password')
@@ -163,42 +208,30 @@ def login():
     if not user:
         return jsonify({'success': False, 'message': 'Invalid username or password'}), 401
     
-    # Store user in session
-    session['user_id'] = user.id
-    session['username'] = user.username
-    session.permanent = True
+    # Generate JWT token
+    token = generate_jwt_token(user)
     
     return jsonify({
         'success': True,
-        'user': {
-            'id': user.id,
-            'username': user.username,
-            'role': user.role
-        }
+        'token': token,
+        'user': user.to_dict()
     }), 200
 
 
 @app.route('/api/logout', methods=['POST'])
 def logout():
     """Log out the current user."""
-    session.clear()
-    return jsonify({'success': True, 'message': 'Logged out'}), 200
+    return jsonify({'success': True, 'message': 'Logged out successfully'}), 200
 
 
 @app.route('/api/me', methods=['GET'])
+@login_required
 def get_me():
     """Get current user information."""
-    user = get_current_user()
-    if not user:
-        return jsonify({'success': False, 'message': 'Not authenticated'}), 401
-    
+    user = request.current_user
     return jsonify({
         'success': True,
-        'user': {
-            'id': user.id,
-            'username': user.username,
-            'role': user.role
-        }
+        'user': user.to_dict()
     }), 200
 
 
@@ -504,6 +537,18 @@ def model_info():
     }), 200
 
 
+# ==================== Error Handlers ====================
+
+@app.errorhandler(404)
+def not_found_error(error):
+    return jsonify({'success': False, 'message': 'Resource not found'}), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'success': False, 'message': 'Internal server error'}), 500
+
+
 # ==================== Initialize Database ====================
 
 def init_db():
@@ -511,21 +556,36 @@ def init_db():
     with app.app_context():
         db.create_all()
         
-        # Create default admin user
-        admin = User.query.filter_by(username='admin').first()
-        if not admin:
-            admin = User(
-                username='admin',
-                password_hash=hash_password('admin123'),
-                role='admin'
-            )
-            db.session.add(admin)
-            db.session.commit()
-            print("✓ Admin user created")
+        # Check and migrate columns in users table if needed
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(db.engine)
+            if 'users' in inspector.get_table_names():
+                columns = [col['name'] for col in inspector.get_columns('users')]
+                if 'email' not in columns:
+                    db.session.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(120)"))
+                    db.session.commit()
+                    print("[OK] Added email column to users table")
+                if 'full_name' not in columns:
+                    db.session.execute(text("ALTER TABLE users ADD COLUMN full_name VARCHAR(120)"))
+                    db.session.commit()
+                    print("[OK] Added full_name column to users table")
+        except Exception as e:
+            db.session.rollback()
+            print("Database migration check note:", str(e))
+
+        # Create or retrieve default admin user
+        create_or_get_admin_user()
 
 
 # ==================== Main ====================
 
 if __name__ == '__main__':
     init_db()
+    print("\n" + "="*50)
+    print("  FraudNova AI Backend Server Running")
+    print("  URL: http://127.0.0.1:5000")
+    print("  Default Login: admin / admin123")
+    print("="*50 + "\n")
     app.run(host='0.0.0.0', port=5000, debug=True)
+

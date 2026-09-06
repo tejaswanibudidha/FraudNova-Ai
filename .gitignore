@@ -1,1 +1,12 @@
 node_modules
+frontend/node_modules
+dist
+frontend/dist
+.env.local
+*.pyc
+__pycache__
+backend/flask_sessions/
+backend/flask_session/
+backend/venv/
+venv/
+
