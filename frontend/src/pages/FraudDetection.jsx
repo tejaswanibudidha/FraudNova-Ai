@@ -24,20 +24,7 @@ export default function FraudDetection() {
     setError(null)
     setResult(null)
 
-    const body = {
-      transaction_id: payload.transaction_id,
-      customer_id: payload.customer_id,
-      amount: Number(payload.amount) || 0,
-      time: payload.time,
-      merchant_category: payload.merchant,
-      payment_method: payload.payment_method,
-      location: payload.location,
-      device_type: payload.device,
-      transaction_frequency: Number(payload.transaction_frequency) || 0,
-      average_spending: Number(payload.average_spending) || 0,
-      previous_transaction_amount: Number(payload.previous_amount) || 0,
-      distance_from_previous_location: Number(payload.distance) || 0
-    }
+    const body = { ...payload }
     setLastPayload(body)
 
     try {
