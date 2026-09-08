@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 node_modules
 frontend/node_modules
 dist
@@ -14,3 +15,13 @@ backend/flask_session/
 backend/venv/
 venv/
 
+=======
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+flask_sessions/
+flask_session/
+*.log
+.DS_Store
+>>>>>>> Stashed changes

@@ -18,6 +18,7 @@ from auth import (
     register_user
 )
 from database import SQLALCHEMY_DATABASE_URI, SQLALCHEMY_TRACK_MODIFICATIONS
+from ml_service import ml_service
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -167,7 +168,12 @@ def _generate_explanation(shap_values, prediction):
 @app.route('/api/health', methods=['GET'])
 def health():
     """Health check endpoint."""
-    return jsonify({"status": "ok", "service": "FraudNova AI Backend"})
+    return jsonify({
+        "status": "ok",
+        "service": "FraudNova AI Backend",
+        "ml_loaded": ml_service.is_loaded,
+        "model_version": "2.4.0-colab" if ml_service.is_loaded else "demo"
+    })
 
 
 @app.route('/api/register', methods=['POST'])
@@ -265,11 +271,13 @@ def predict():
     if existing:
         return jsonify({'success': False, 'message': f'Transaction {data.get("transaction_id")} already exists'}), 400
     
-    # Special case for demo transaction
-    if data.get('transaction_id') == 'TXN10078':
+    # Special case for demo transaction if requested
+    if data.get('transaction_id') == 'TXN10078' and not ml_service.is_loaded:
         risk_score = 94
         confidence = 0.945
         prediction = 'Fraud'
+        mode = 'DEMO'
+        pipeline = _make_pipeline()
         shap_vals = [
             {"feature": "Transaction Amount", "value": 85000, "impact": 0.42},
             {"feature": "Transaction Frequency", "value": 2, "impact": 0.25},
@@ -279,24 +287,45 @@ def predict():
             {"feature": "Average Spending", "value": 15000, "impact": -0.03},
         ]
         explanation = "The transaction was classified as high risk mainly because the transaction amount is significantly higher than the customer's average spending. The use of a new device and large location change also contributed to the fraud prediction."
+    elif ml_service.is_loaded:
+        try:
+            ml_res = ml_service.predict_transaction(data)
+            prediction = ml_res['prediction']
+            risk_score = ml_res['risk_score']
+            confidence = ml_res['confidence']
+            mode = ml_res.get('mode', 'ML_QUANTUM_HYBRID')
+            pipeline = ml_res.get('pipeline', _make_pipeline())
+            shap_vals = ml_res.get('shap', [])
+            explanation = ml_res.get('explanation', '')
+        except Exception as e:
+            print(f"[app.py] ML inference error, falling back to heuristics: {e}")
+            risk_score = _calculate_risk_score(amount, tx_freq, avg, dist)
+            confidence = round(min(0.999, max(0.5, (risk_score / 100) + 0.05)), 3)
+            prediction = 'Fraud' if risk_score >= 50 else 'Not Fraud'
+            mode = 'FALLBACK_DEMO'
+            pipeline = _make_pipeline()
+            shap_vals = _generate_shap_values(data, risk_score, prediction)
+            explanation = _generate_explanation(shap_vals, prediction)
     else:
-        # Calculate risk score
+        # Calculate heuristic risk score
         risk_score = _calculate_risk_score(amount, tx_freq, avg, dist)
         confidence = round(min(0.999, max(0.5, (risk_score / 100) + 0.05)), 3)
         prediction = 'Fraud' if risk_score >= 50 else 'Not Fraud'
+        mode = 'DEMO'
+        pipeline = _make_pipeline()
         shap_vals = _generate_shap_values(data, risk_score, prediction)
         explanation = _generate_explanation(shap_vals, prediction)
     
     # Create transaction record
     txn = Transaction(
         transaction_id=data.get('transaction_id') or f"TXN{int(datetime.utcnow().timestamp())}",
-        customer_id=data.get('customer_id'),
+        customer_id=data.get('customer_id') or 'CUST_UNKNOWN',
         amount=amount,
         transaction_time=data.get('time') or datetime.utcnow().isoformat(),
-        merchant_category=data.get('merchant_category'),
-        payment_method=data.get('payment_method'),
-        location=data.get('location'),
-        device_type=data.get('device_type'),
+        merchant_category=data.get('merchant_category') or 'General',
+        payment_method=data.get('payment_method') or 'Credit Card',
+        location=data.get('location') or 'Standard',
+        device_type=data.get('device_type') or 'Standard',
         transaction_frequency=tx_freq,
         average_spending=avg,
         previous_transaction_amount=prev,
@@ -327,8 +356,8 @@ def predict():
         'prediction': prediction,
         'risk_score': risk_score,
         'confidence': confidence,
-        'mode': 'DEMO',
-        'pipeline': _make_pipeline(),
+        'mode': mode,
+        'pipeline': pipeline,
         'shap': shap_vals,
         'explanation': explanation
     }), 201
@@ -466,6 +495,24 @@ def get_transaction_detail(transaction_id):
     
     # Get SHAP values for this transaction
     shap_vals = ShapExplanation.query.filter_by(transaction_id=transaction_id).all()
+    if not shap_vals:
+        txn_dict = {
+            'amount': txn.amount,
+            'average_spending': txn.average_spending,
+            'transaction_frequency': txn.transaction_frequency,
+            'distance_from_previous_location': txn.distance_from_previous_location,
+            'device_type': txn.device_type
+        }
+        shap_list = _generate_shap_values(txn_dict, txn.risk_score, txn.prediction)
+    else:
+        shap_list = [
+            {
+                'feature': s.feature_name,
+                'value': s.feature_value,
+                'impact': s.shap_value
+            }
+            for s in shap_vals
+        ]
     
     return jsonify({
         'success': True,
@@ -484,15 +531,9 @@ def get_transaction_detail(transaction_id):
         'prediction': txn.prediction,
         'risk_score': txn.risk_score,
         'confidence': txn.confidence,
-        'shap': [
-            {
-                'feature': s.feature_name,
-                'value': s.feature_value,
-                'impact': s.shap_value
-            }
-            for s in shap_vals
-        ],
-        'created_at': txn.created_at.isoformat()
+        'shap': shap_list,
+        'explanation': _generate_explanation(shap_list, txn.prediction),
+        'created_at': txn.created_at.isoformat() if txn.created_at else None
     }), 200
 
 
@@ -522,22 +563,27 @@ def get_alerts():
     }), 200
 
 
-# ==================== Model Info Route ====================
+# ==================== Model Info & Reload Routes ====================
 
 @app.route('/api/model-info', methods=['GET'])
 @login_required
 def model_info():
-    """Get model information."""
+    """Get model information from ML service."""
+    info = ml_service.get_model_info()
     return jsonify({
         'success': True,
-        'name': 'FraudNova AI Model',
-        'version': '0.1-demo',
-        'description': 'Quantum-enhanced fraud detection system',
-        'components': ['CNN + LSTM', 'QCNN', 'QSVM', 'VQE + QAOA'],
-        'shap_enabled': True
+        'name': info.get('model_name', 'FraudNova AI Model'),
+        'version': info.get('version', '2.4.0-colab'),
+        'description': 'Quantum-enhanced fraud detection system with CNN+BiLSTM and QSVM',
+        'components': info.get('components', ['CNN + LSTM', 'QCNN', 'QSVM', 'VQE + QAOA']),
+        'shap_enabled': True,
+        'ml_loaded': info.get('loaded', False),
+        'metrics': info.get('metrics', {}),
+        'architecture': info.get('architecture', {})
     }), 200
 
 
+<<<<<<< Updated upstream
 # ==================== Error Handlers ====================
 
 @app.errorhandler(404)
@@ -548,6 +594,24 @@ def not_found_error(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'success': False, 'message': 'Internal server error'}), 500
+=======
+@app.route('/api/model/reload', methods=['POST'])
+@login_required
+def reload_models():
+    """Reload ML model artifacts from disk without restarting server."""
+    success = ml_service.load_models()
+    if success:
+        return jsonify({
+            'success': True,
+            'message': 'ML models reloaded successfully',
+            'info': ml_service.get_model_info()
+        }), 200
+    else:
+        return jsonify({
+            'success': False,
+            'message': f'Failed to reload models: {ml_service.load_error}'
+        }), 500
+>>>>>>> Stashed changes
 
 
 # ==================== Initialize Database ====================

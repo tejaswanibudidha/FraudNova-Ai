@@ -1,0 +1,29 @@
+{
+    "dataset_samples": 50000,
+    "cnn_lstm_test_accuracy": 0.9665,
+    "cnn_lstm_precision": 0.9717,
+    "cnn_lstm_recall": 0.961,
+    "cnn_lstm_f1": 0.9663,
+    "cnn_lstm_roc_auc": 0.9949,
+    "qaoa_validation_accuracy": 0.9739,
+    "vqe_final_energy": -0.998569,
+    "qsvm_validation_accuracy": 0.98,
+    "qsvm_test_accuracy": 0.9669,
+    "qsvm_test_precision": 0.9765258215962441,
+    "qsvm_test_recall": 0.9568,
+    "qsvm_test_f1": 0.9665622790180827,
+    "qsvm_test_roc_auc": 0.99107188,
+    "qsvm_C": 0.1,
+    "pca_components": 8,
+    "final_selected_features": [
+        "PC1",
+        "PC2",
+        "PC4",
+        "PC5",
+        "PC7",
+        "PC8"
+    ],
+    "qsvm_qubits": 6,
+    "qsvm_training_samples": 2000,
+    "qsvm_test_samples": 10000
+}
