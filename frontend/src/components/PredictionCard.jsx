@@ -51,8 +51,32 @@ export default function PredictionCard({ result }) {
         <RiskBadge score={riskScore} prediction={result.prediction} />
       </div>
 
+      {/* Target Spec Summary Banner */}
+      <div className="mt-4 grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-black/40 border border-white/10 shadow-inner">
+        <div className="text-center border-r border-white/10">
+          <span className="text-[11px] text-gray-400 block font-semibold uppercase tracking-wider">Prediction</span>
+          <span className={`text-base sm:text-lg font-black tracking-wide ${isFraud ? 'text-rose-400' : 'text-emerald-400'}`}>
+            {result.prediction || (isFraud ? 'Fraud' : 'Genuine')}
+          </span>
+        </div>
+        <div className="text-center border-r border-white/10">
+          <span className="text-[11px] text-gray-400 block font-semibold uppercase tracking-wider">Class</span>
+          <span className="text-base sm:text-lg font-black font-mono text-cyan-300">
+            {result.class !== undefined ? result.class : (isFraud ? 1 : 0)}
+          </span>
+        </div>
+        <div className="text-center">
+          <span className="text-[11px] text-gray-400 block font-semibold uppercase tracking-wider">Risk Level</span>
+          <span className={`text-base sm:text-lg font-black tracking-wide ${
+            riskScore >= 75 || isFraud ? 'text-rose-400' : (riskScore >= 40 ? 'text-amber-400' : 'text-emerald-400')
+          }`}>
+            {result.risk || (riskScore >= 75 || isFraud ? 'High' : (riskScore >= 40 ? 'Medium' : 'Low'))}
+          </span>
+        </div>
+      </div>
+
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-5">
         <div className="rounded-xl bg-black/40 border border-white/5 p-3.5">
           <span className="text-xs text-gray-400 block font-semibold">Anomaly Risk Score</span>
           <div className="flex items-baseline gap-2 mt-1">
@@ -123,7 +147,7 @@ export default function PredictionCard({ result }) {
           <div className="bg-white/[0.03] p-2.5 rounded-xl border border-white/5">
             <span className="text-gray-500 block">Amount</span>
             <span className="text-cyan-300 font-mono font-bold mt-0.5 block">
-              ₹{Number(result.amount || 0).toLocaleString()}
+              ₹{Number(result.amount || result.amount_inr || 0).toLocaleString()}
             </span>
           </div>
           <div className="bg-white/[0.03] p-2.5 rounded-xl border border-white/5">
@@ -141,7 +165,7 @@ export default function PredictionCard({ result }) {
           <div className="bg-white/[0.03] p-2.5 rounded-xl border border-white/5">
             <span className="text-gray-500 block">Time</span>
             <span className="text-white font-mono mt-0.5 block">
-              {result.time || 'N/A'}
+              {result.time || result.transaction_time || 'N/A'}
             </span>
           </div>
           <div className="bg-white/[0.03] p-2.5 rounded-xl border border-white/5">

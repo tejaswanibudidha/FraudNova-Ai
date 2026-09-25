@@ -260,11 +260,11 @@ def predict():
             except Exception:
                 return 0
     
-    amount = to_num(data.get('amount'))
+    amount = to_num(data.get('amount') if data.get('amount') is not None else data.get('amount_inr'))
     tx_freq = to_num(data.get('transaction_frequency'))
-    avg = to_num(data.get('average_spending'))
-    prev = to_num(data.get('previous_transaction_amount'))
-    dist = to_num(data.get('distance_from_previous_location'))
+    avg = to_num(data.get('average_spending') if data.get('average_spending') is not None else data.get('average_spending_inr'))
+    prev = to_num(data.get('previous_transaction_amount') if data.get('previous_transaction_amount') is not None else data.get('previous_transaction_amount_inr'))
+    dist = to_num(data.get('distance_from_previous_location') if data.get('distance_from_previous_location') is not None else data.get('distance_from_previous_location_km'))
     
     # Check if transaction_id already exists
     existing = Transaction.query.filter_by(transaction_id=data.get('transaction_id')).first()
@@ -301,7 +301,7 @@ def predict():
             print(f"[app.py] ML inference error, falling back to heuristics: {e}")
             risk_score = _calculate_risk_score(amount, tx_freq, avg, dist)
             confidence = round(min(0.999, max(0.5, (risk_score / 100) + 0.05)), 3)
-            prediction = 'Fraud' if risk_score >= 50 else 'Not Fraud'
+            prediction = 'Fraud' if risk_score >= 50 else 'Genuine'
             mode = 'FALLBACK_DEMO'
             pipeline = _make_pipeline()
             shap_vals = _generate_shap_values(data, risk_score, prediction)
@@ -310,22 +310,27 @@ def predict():
         # Calculate heuristic risk score
         risk_score = _calculate_risk_score(amount, tx_freq, avg, dist)
         confidence = round(min(0.999, max(0.5, (risk_score / 100) + 0.05)), 3)
-        prediction = 'Fraud' if risk_score >= 50 else 'Not Fraud'
+        prediction = 'Fraud' if risk_score >= 50 else 'Genuine'
         mode = 'DEMO'
         pipeline = _make_pipeline()
         shap_vals = _generate_shap_values(data, risk_score, prediction)
         explanation = _generate_explanation(shap_vals, prediction)
     
+    time_val = data.get('time') or data.get('transaction_time') or datetime.utcnow().strftime('%H:%M')
+    merchant_val = data.get('merchant_category') or data.get('merchant') or 'General'
+    location_val = data.get('location') or 'Standard'
+    device_val = data.get('device_type') or data.get('device') or 'Standard'
+
     # Create transaction record
     txn = Transaction(
         transaction_id=data.get('transaction_id') or f"TXN{int(datetime.utcnow().timestamp())}",
         customer_id=data.get('customer_id') or 'CUST_UNKNOWN',
         amount=amount,
-        transaction_time=data.get('time') or datetime.utcnow().isoformat(),
-        merchant_category=data.get('merchant_category') or 'General',
+        transaction_time=time_val,
+        merchant_category=merchant_val,
         payment_method=data.get('payment_method') or 'Credit Card',
-        location=data.get('location') or 'Standard',
-        device_type=data.get('device_type') or 'Standard',
+        location=location_val,
+        device_type=device_val,
         transaction_frequency=tx_freq,
         average_spending=avg,
         previous_transaction_amount=prev,
@@ -350,12 +355,29 @@ def predict():
     
     db.session.commit()
     
+    pred_class = 1 if prediction == 'Fraud' else 0
+    risk_level = 'High' if risk_score >= 75 else ('Medium' if risk_score >= 40 else 'Low')
+    status = f"{risk_level} Risk"
+
     return jsonify({
         'success': True,
         'transaction_id': txn.transaction_id,
+        'customer_id': txn.customer_id,
         'prediction': prediction,
+        'class': pred_class,
+        'risk': risk_level,
+        'risk_level': risk_level,
+        'status': status,
         'risk_score': risk_score,
         'confidence': confidence,
+        'amount': txn.amount,
+        'merchant': txn.merchant_category,
+        'merchant_category': txn.merchant_category,
+        'location': txn.location,
+        'time': txn.transaction_time,
+        'transaction_time': txn.transaction_time,
+        'device': txn.device_type,
+        'device_type': txn.device_type,
         'mode': mode,
         'pipeline': pipeline,
         'shap': shap_vals,
@@ -371,7 +393,7 @@ def dashboard():
     """Get dashboard statistics from database."""
     total = Transaction.query.count()
     fraud = Transaction.query.filter_by(prediction='Fraud').count()
-    genuine = Transaction.query.filter_by(prediction='Not Fraud').count()
+    genuine = Transaction.query.filter(Transaction.prediction.in_(['Genuine', 'Not Fraud'])).count()
     fraud_rate = round((fraud / total * 100) if total > 0 else 0, 2)
     
     # Get trend data (last 10 transactions)
@@ -380,7 +402,7 @@ def dashboard():
         {
             "time": t.transaction_time or f"T{i}",
             "fraud": 1 if t.prediction == 'Fraud' else 0,
-            "genuine": 1 if t.prediction == 'Not Fraud' else 0
+            "genuine": 1 if t.prediction in ['Genuine', 'Not Fraud'] else 0
         }
         for i, t in enumerate(reversed(recent_txns))
     ]
@@ -412,7 +434,7 @@ def dashboard():
                 'time': t.transaction_time,
                 'merchant': t.merchant_category,
                 'risk_score': t.risk_score,
-                'prediction': t.prediction,
+                'prediction': 'Genuine' if t.prediction in ['Genuine', 'Not Fraud'] else t.prediction,
                 'status': 'High Risk' if t.risk_score >= 75 else ('Medium Risk' if t.risk_score >= 40 else 'Low Risk'),
                 'location': t.location
             }
@@ -448,7 +470,7 @@ def get_transactions():
     if filter_type == 'Fraud':
         query = query.filter_by(prediction='Fraud')
     elif filter_type == 'Genuine' or filter_type == 'Not Fraud':
-        query = query.filter_by(prediction='Not Fraud')
+        query = query.filter(Transaction.prediction.in_(['Genuine', 'Not Fraud']))
     elif filter_type == 'High Risk':
         query = query.filter(Transaction.risk_score >= 75)
     elif filter_type == 'Medium Risk':
@@ -472,7 +494,7 @@ def get_transactions():
                 'time': t.transaction_time,
                 'merchant': t.merchant_category,
                 'risk_score': t.risk_score,
-                'prediction': t.prediction,
+                'prediction': 'Genuine' if t.prediction in ['Genuine', 'Not Fraud'] else t.prediction,
                 'status': 'High Risk' if t.risk_score >= 75 else ('Medium Risk' if t.risk_score >= 40 else 'Low Risk'),
                 'location': t.location
             }
@@ -583,7 +605,6 @@ def model_info():
     }), 200
 
 
-<<<<<<< Updated upstream
 # ==================== Error Handlers ====================
 
 @app.errorhandler(404)
@@ -594,7 +615,8 @@ def not_found_error(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'success': False, 'message': 'Internal server error'}), 500
-=======
+
+
 @app.route('/api/model/reload', methods=['POST'])
 @login_required
 def reload_models():
@@ -611,7 +633,6 @@ def reload_models():
             'success': False,
             'message': f'Failed to reload models: {ml_service.load_error}'
         }), 500
->>>>>>> Stashed changes
 
 
 # ==================== Initialize Database ====================

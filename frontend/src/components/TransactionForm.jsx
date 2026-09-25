@@ -3,19 +3,30 @@ import { Sparkles, CreditCard, Building2, Activity, ArrowRight, RotateCcw, Alert
 
 const initialForm = {
   amount_inr: '', account_type: 'Savings', transaction_type: 'Purchase', transaction_direction: 'Debit',
-  merchant_category: 'Electronics', payment_method: 'UPI', location: 'Mumbai', device_type: 'Mobile', network_type: '4G',
-  transaction_frequency: 1, average_spending_inr: '', previous_transaction_amount_inr: '',
-  distance_from_previous_location_km: '', account_balance_inr: '', credit_score: '', transaction_date: '', transaction_time: '', hour_of_day: '', day_of_week: ''
+  merchant_category: 'Grocery', payment_method: 'UPI', location: 'Hyderabad', device_type: 'Mobile', network_type: '5G',
+  transaction_frequency: 2, average_spending_inr: '', previous_transaction_amount_inr: '',
+  distance_from_previous_location_km: '', account_balance_inr: '', credit_score: '', transaction_date: '', transaction_time: '', hour_of_day: '', day_of_week: '', is_weekend: 'No'
 }
 
 const inputClass = 'w-full px-3 py-2 bg-[#090f1d] border border-white/10 rounded-xl text-white text-sm focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all'
 const numberClass = `${inputClass} font-mono`
 
-function Field({ label, name, value, onChange, error, children, type = 'text', min, max, className = inputClass }) {
+function Field({ label, name, value, onChange, error, children, type = 'text', min, max, step, className = inputClass }) {
   return (
     <div>
       <label className="block text-xs font-semibold text-gray-400 mb-1">{label}</label>
-      {children || <input name={name} type={type} min={min} max={max} value={value} onChange={onChange} className={className} />}
+      {children || (
+        <input 
+          name={name} 
+          type={type} 
+          min={min} 
+          max={max} 
+          step={step !== undefined ? step : (type === 'number' ? 'any' : undefined)}
+          value={value ?? ''} 
+          onChange={onChange} 
+          className={className} 
+        />
+      )}
       {error && <p className="text-[11px] text-rose-400 mt-1">{error}</p>}
     </div>
   )
@@ -34,16 +45,60 @@ export default function TransactionForm({ onSubmit, loading = false }) {
   const [errors, setErrors] = useState({})
 
   const handle = (e) => {
-    const nextForm = { ...form, [e.target.name]: e.target.value }
-    if (e.target.name === 'transaction_time') {
-      nextForm.hour_of_day = e.target.value ? Number(e.target.value.slice(0, 2)) : ''
+    const { name, value } = e.target
+    const nextForm = { ...form, [name]: value }
+    
+    if (name === 'transaction_time') {
+      if (value && (nextForm.hour_of_day === '' || nextForm.hour_of_day === undefined)) {
+        nextForm.hour_of_day = Number(value.slice(0, 2))
+      }
     }
-    if (e.target.name === 'transaction_date') {
-      const date = e.target.value ? new Date(`${e.target.value}T00:00:00`) : null
-      nextForm.day_of_week = date ? (date.getDay() + 6) % 7 : ''
+    
+    if (name === 'transaction_date') {
+      const date = value ? new Date(`${value}T00:00:00`) : null
+      if (date && !isNaN(date.getTime()) && (nextForm.day_of_week === '' || nextForm.day_of_week === undefined)) {
+        // Monday=1 ... Thursday=4 ... Sunday=7
+        const isoDay = date.getDay() === 0 ? 7 : date.getDay()
+        nextForm.day_of_week = isoDay
+        nextForm.is_weekend = isoDay >= 6 ? 'Yes' : 'No'
+      }
     }
+
+    if (name === 'day_of_week') {
+      const dNum = Number(value)
+      if (!isNaN(dNum)) {
+        nextForm.is_weekend = (dNum === 0 || dNum === 6 || dNum === 7) ? 'Yes' : 'No'
+      }
+    }
+
     setForm(nextForm)
-    if (errors[e.target.name]) setErrors({ ...errors, [e.target.name]: null })
+    if (errors[name]) setErrors({ ...errors, [name]: null })
+  }
+
+  const loadTestCase = () => {
+    setForm({
+      amount_inr: '1000',
+      account_type: 'Savings',
+      transaction_type: 'Purchase',
+      transaction_direction: 'Debit',
+      transaction_date: '2026-09-24',
+      transaction_time: '14:30',
+      hour_of_day: 14,
+      day_of_week: 4,
+      is_weekend: 'No',
+      merchant_category: 'Grocery',
+      payment_method: 'UPI',
+      location: 'Hyderabad',
+      device_type: 'Mobile',
+      network_type: '5G',
+      transaction_frequency: 2,
+      average_spending_inr: '1500',
+      previous_transaction_amount_inr: '1200',
+      distance_from_previous_location_km: '2',
+      account_balance_inr: '40000',
+      credit_score: '750'
+    })
+    setErrors({})
   }
 
   const resetForm = () => { setForm(initialForm); setErrors({}) }
@@ -51,11 +106,11 @@ export default function TransactionForm({ onSubmit, loading = false }) {
   const validate = () => {
     const err = {}
     const numeric = (field, label, minimum = 0) => {
-      if (form[field] === '' || !Number.isFinite(Number(form[field])) || Number(form[field]) < minimum) {
+      if (form[field] === '' || form[field] === undefined || !Number.isFinite(Number(form[field])) || Number(form[field]) < minimum) {
         err[field] = `${label} must be ${minimum ? `at least ${minimum}` : '0 or greater'}`
       }
     }
-    numeric('amount_inr', 'Amount', 0.01)
+    numeric('amount_inr', 'Amount', 1)
     numeric('transaction_frequency', 'Transaction frequency')
     numeric('average_spending_inr', 'Average spending')
     numeric('previous_transaction_amount_inr', 'Previous amount')
@@ -75,34 +130,62 @@ export default function TransactionForm({ onSubmit, loading = false }) {
     const amount = Number(form.amount_inr)
     const averageSpending = Number(form.average_spending_inr)
     const previousAmount = Number(form.previous_transaction_amount_inr)
+    const distance = Number(form.distance_from_previous_location_km)
+    const balance = Number(form.account_balance_inr)
+    const isWeekendVal = form.is_weekend === 'Yes' || form.is_weekend === 1 || form.is_weekend === '1' ? 1 : 0
+
     onSubmit({
-      ...form, amount_inr: amount, transaction_frequency: Number(form.transaction_frequency), average_spending_inr: averageSpending,
-      previous_transaction_amount_inr: previousAmount, distance_from_previous_location_km: Number(form.distance_from_previous_location_km),
-      account_balance_inr: Number(form.account_balance_inr), credit_score: Number(form.credit_score), hour_of_day: Number(form.hour_of_day),
-      day_of_week: Number(form.day_of_week), is_weekend: Number(form.day_of_week) >= 5 ? 1 : 0,
+      ...form,
+      amount: amount,
+      amount_inr: amount,
+      transaction_frequency: Number(form.transaction_frequency),
+      average_spending: averageSpending,
+      average_spending_inr: averageSpending,
+      previous_transaction_amount: previousAmount,
+      previous_transaction_amount_inr: previousAmount,
+      distance_from_previous_location: distance,
+      distance_from_previous_location_km: distance,
+      account_balance: balance,
+      account_balance_inr: balance,
+      credit_score: Number(form.credit_score),
+      hour_of_day: Number(form.hour_of_day || (form.transaction_time ? form.transaction_time.slice(0, 2) : 14)),
+      day_of_week: Number(form.day_of_week !== '' ? form.day_of_week : 4),
+      is_weekend: isWeekendVal,
+      time: form.transaction_time,
+      transaction_time: form.transaction_time,
       amount_vs_average_ratio: averageSpending === 0 ? 0 : amount / averageSpending,
       amount_change_from_previous_ratio: previousAmount === 0 ? 0 : (amount - previousAmount) / previousAmount
     })
   }
 
   return (
-    <form onSubmit={submit} className="space-y-6">
+    <form onSubmit={submit} noValidate className="space-y-6">
       <div className="space-y-5">
         <div className="rounded-2xl bg-[#0e172a]/80 border border-white/10 p-5 shadow-lg">
-          <div className="flex items-center gap-2 mb-4 pb-2 border-b border-white/5">
-            <div className="w-7 h-7 rounded-lg bg-cyan-500/15 text-cyan-400 flex items-center justify-center"><CreditCard size={15} /></div>
-            <h4 className="text-sm font-bold text-white tracking-wide">1. Transaction Basics</h4>
+          <div className="flex items-center justify-between mb-4 pb-2 border-b border-white/5">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-cyan-500/15 text-cyan-400 flex items-center justify-center"><CreditCard size={15} /></div>
+              <h4 className="text-sm font-bold text-white tracking-wide">1. Transaction Basics</h4>
+            </div>
+            <button
+              type="button"
+              onClick={loadTestCase}
+              className="px-3 py-1.5 rounded-lg bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 text-xs font-bold hover:bg-cyan-500/25 transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(6,182,212,0.2)]"
+            >
+              <Sparkles size={13} />
+              <span>Load Test Case (₹1000 Grocery)</span>
+            </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <Field label="Amount (₹)" name="amount_inr" type="number" min="0.01" value={form.amount_inr} onChange={handle} error={errors.amount_inr} className={`${numberClass} font-bold text-cyan-300`} />
+            <Field label="Amount (₹)" name="amount_inr" type="number" min="0" step="any" value={form.amount_inr} onChange={handle} error={errors.amount_inr} className={`${numberClass} font-bold text-cyan-300`} />
             <SelectField label="Account Type" name="account_type" value={form.account_type} onChange={handle} options={['Savings', 'Current']} error={errors.account_type} />
             <SelectField label="Transaction Type" name="transaction_type" value={form.transaction_type} onChange={handle} options={['Purchase', 'Transfer', 'Withdrawal', 'Deposit']} error={errors.transaction_type} />
             <SelectField label="Transaction Direction" name="transaction_direction" value={form.transaction_direction} onChange={handle} options={['Debit', 'Credit']} error={errors.transaction_direction} />
             <Field label="Transaction Date" name="transaction_date" type="date" value={form.transaction_date} onChange={handle} error={errors.transaction_date} />
             <Field label="Transaction Time" name="transaction_time" type="time" value={form.transaction_time} onChange={handle} error={errors.transaction_time} />
-            <Field label="Hour of Day"><input readOnly value={form.hour_of_day} className={`${numberClass} text-gray-400`} /></Field>
-            <Field label="Day of Week (0–6)"><input readOnly value={form.day_of_week} className={`${inputClass} text-gray-400`} /></Field>
-            <Field label="Is Weekend"><input readOnly value={Number(form.day_of_week) >= 5 ? 'Yes' : 'No'} className={`${inputClass} text-gray-400`} /></Field>
+            <Field label="Hour of Day" name="hour_of_day" type="number" min="0" max="23" value={form.hour_of_day} onChange={handle} className={numberClass} />
+            <Field label="Day of Week" name="day_of_week" type="number" min="0" max="7" value={form.day_of_week} onChange={handle} className={numberClass} />
+            <SelectField label="Is Weekend" name="is_weekend" value={form.is_weekend} onChange={handle} options={['No', 'Yes']} />
           </div>
         </div>
 
@@ -112,11 +195,11 @@ export default function TransactionForm({ onSubmit, loading = false }) {
             <h4 className="text-sm font-bold text-white tracking-wide">2. Merchant &amp; Channel Context</h4>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <SelectField label="Merchant Category" name="merchant_category" value={form.merchant_category} onChange={handle} options={['Electronics', 'Grocery', 'Travel', 'Luxury', 'Utilities', 'Food']} error={errors.merchant_category} />
+            <SelectField label="Merchant Category" name="merchant_category" value={form.merchant_category} onChange={handle} options={['Grocery', 'Electronics', 'Travel', 'Luxury', 'Utilities', 'Food']} error={errors.merchant_category} />
             <SelectField label="Payment Method" name="payment_method" value={form.payment_method} onChange={handle} options={['UPI', 'Credit Card', 'Debit Card', 'Net Banking', 'Wallet', 'Cash']} error={errors.payment_method} />
-            <SelectField label="Location / City" name="location" value={form.location} onChange={handle} options={['Mumbai', 'Delhi', 'Bengaluru', 'Chennai', 'Hyderabad', 'Pune', 'Kolkata']} error={errors.location} />
+            <SelectField label="Location / City" name="location" value={form.location} onChange={handle} options={['Hyderabad', 'Mumbai', 'Delhi', 'Bengaluru', 'Chennai', 'Pune', 'Kolkata']} error={errors.location} />
             <SelectField label="Device Type" name="device_type" value={form.device_type} onChange={handle} options={['Mobile', 'Desktop', 'Tablet']} error={errors.device_type} />
-            <SelectField label="Network Type" name="network_type" value={form.network_type} onChange={handle} options={['4G', '5G', 'WiFi', 'Public WiFi']} error={errors.network_type} />
+            <SelectField label="Network Type" name="network_type" value={form.network_type} onChange={handle} options={['5G', '4G', 'WiFi', 'Public WiFi']} error={errors.network_type} />
           </div>
         </div>
 

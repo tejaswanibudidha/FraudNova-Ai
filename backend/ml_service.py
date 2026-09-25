@@ -108,54 +108,120 @@ class MLService:
         """Maps raw transaction dictionary to the 34 required preprocessor features."""
         def to_f(v, default=0.0):
             try:
+                if v is None or v == "":
+                    return default
                 return float(v)
             except Exception:
                 return default
 
         def to_i(v, default=0):
             try:
-                return int(v)
+                if v is None or v == "":
+                    return default
+                return int(float(v))
             except Exception:
                 return default
 
         amount = to_f(data.get("amount", data.get("amount_inr", 100)))
         avg_spending = max(1.0, to_f(data.get("average_spending", data.get("average_spending_inr", 150))))
-        prev_amount = to_f(data.get("previous_transaction_amount", data.get("previous_amount", 120)))
-        distance = to_f(data.get("distance_from_previous_location", data.get("distance", 5)))
+        prev_amount = to_f(data.get("previous_transaction_amount", data.get("previous_transaction_amount_inr", data.get("previous_amount", 120))))
+        distance = to_f(data.get("distance_from_previous_location", data.get("distance_from_previous_location_km", data.get("distance", 5))))
         freq = to_i(data.get("transaction_frequency", 1))
-        balance = max(1.0, to_f(data.get("account_balance", 50000)))
+        balance = max(1.0, to_f(data.get("account_balance", data.get("account_balance_inr", 50000))))
         credit_score = to_f(data.get("credit_score", 720))
 
-        # Categoricals
+        # Categoricals raw
         account_type = data.get("account_type", "Savings")
         transaction_type = data.get("transaction_type", "Debit")
         merchant = data.get("merchant_category", data.get("merchant", "Retail"))
         payment_method = data.get("payment_method", "Credit Card")
-        direction = data.get("transaction_direction", "Outward")
-        location = data.get("location", "Mumbai")
+        direction = data.get("transaction_direction", "Debit")
+        location = data.get("location", "Hyderabad")
         device = data.get("device_type", data.get("device", "Mobile"))
-        network = data.get("network_type", "4G")
+        network = data.get("network_type", "5G")
 
-        # Time parsing
+        # Category normalizations to match preprocessor OneHotEncoder vocabulary
+        LOCATION_MAP = {
+            'hyderabad': 'Telangana', 'mumbai': 'Maharashtra', 'pune': 'Maharashtra',
+            'bengaluru': 'Karnataka', 'bangalore': 'Karnataka', 'chennai': 'Tamil Nadu',
+            'kolkata': 'West Bengal', 'delhi': 'Delhi', 'new delhi': 'Delhi'
+        }
+        DEVICE_MAP = {
+            'mobile': 'Android', 'desktop': 'Web', 'tablet': 'Android',
+            'phone': 'Android', 'laptop': 'Web', 'pc': 'Web', 'android': 'Android', 'ios': 'iOS'
+        }
+        TXN_TYPE_MAP = {
+            'purchase': 'P2M', 'transfer': 'P2P', 'withdrawal': 'UPI', 'deposit': 'UPI',
+            'bill payment': 'Bill Payment', 'recharge': 'Recharge', 'p2m': 'P2M', 'p2p': 'P2P'
+        }
+        MERCHANT_MAP = {
+            'food': 'Food & Dining', 'dining': 'Food & Dining', 'luxury': 'Jewellery'
+        }
+        PAYMENT_MAP = {
+            'wallet': 'UPI', 'cash': 'UPI'
+        }
+        NETWORK_MAP = {
+            'public wifi': 'WiFi'
+        }
+
+        location_norm = LOCATION_MAP.get(str(location).strip().lower(), location)
+        device_norm = DEVICE_MAP.get(str(device).strip().lower(), device)
+        txn_type_norm = TXN_TYPE_MAP.get(str(transaction_type).strip().lower(), transaction_type)
+        merchant_norm = MERCHANT_MAP.get(str(merchant).strip().lower(), merchant)
+        payment_norm = PAYMENT_MAP.get(str(payment_method).strip().lower(), payment_method)
+        network_norm = NETWORK_MAP.get(str(network).strip().lower(), network)
+
+        # Date and Time parsing
+        date_str = str(data.get("transaction_date", data.get("date", "")))
         time_str = str(data.get("time", data.get("transaction_time", "")))
-        hour = 14
-        day = 1
-        month = 8
+        
+        hour = to_i(data.get("hour_of_day"), default=-1)
+        weekday = to_i(data.get("day_of_week"), default=-1)
+        day = 24
+        month = 9
         minute = 30
-        weekday = 2
 
-        if ":" in time_str:
+        if date_str:
             try:
-                parts = time_str.replace("T", " ").split()
-                t_part = parts[-1]
-                t_tokens = t_part.split(":")
-                hour = int(t_tokens[0])
-                if len(t_tokens) > 1:
-                    minute = int(t_tokens[1])
+                cleaned_date = date_str.replace("/", "-").split("T")[0].strip()
+                tokens = cleaned_date.split("-")
+                if len(tokens) == 3:
+                    if len(tokens[0]) == 4:
+                        year = int(tokens[0])
+                        month = int(tokens[1])
+                        day = int(tokens[2])
+                    else:
+                        day = int(tokens[0])
+                        month = int(tokens[1])
+                        year = int(tokens[2])
+                    if weekday < 0:
+                        import datetime
+                        weekday = datetime.date(year, month, day).isoweekday()
             except Exception:
+                pass
+
+        if weekday < 0:
+            weekday = 4
+
+        if hour < 0:
+            if ":" in time_str:
+                try:
+                    parts = time_str.replace("T", " ").split()
+                    t_part = parts[-1]
+                    t_tokens = t_part.split(":")
+                    hour = int(t_tokens[0])
+                    if len(t_tokens) > 1:
+                        minute = int(t_tokens[1])
+                except Exception:
+                    hour = 14
+            else:
                 hour = 14
 
-        is_weekend = 1 if weekday in [5, 6] else 0
+        if "is_weekend" in data:
+            iw = data.get("is_weekend")
+            is_weekend = 1 if (iw in [1, "1", "Yes", "yes", True]) else 0
+        else:
+            is_weekend = 1 if weekday in [5, 6, 7] else 0
 
         # Feature derivations
         amount_vs_avg = amount / avg_spending
@@ -174,13 +240,13 @@ class MLService:
         row = {
             "amount_inr": amount,
             "account_type": account_type,
-            "transaction_type": transaction_type,
-            "merchant_category": merchant,
-            "payment_method": payment_method,
+            "transaction_type": txn_type_norm,
+            "merchant_category": merchant_norm,
+            "payment_method": payment_norm,
             "transaction_direction": direction,
-            "location": location,
-            "device_type": device,
-            "network_type": network,
+            "location": location_norm,
+            "device_type": device_norm,
+            "network_type": network_norm,
             "transaction_frequency": freq,
             "average_spending_inr": avg_spending,
             "previous_transaction_amount_inr": prev_amount,
@@ -234,7 +300,6 @@ class MLService:
         # 6. Quantum Kernel & QSVM Inference
         # Encode 6-dimensional quantum features into 64-dimensional Hilbert space (6 qubits: 2^6 = 64)
         norm_q = quantum_features / (np.linalg.norm(quantum_features, axis=1, keepdims=True) + 1e-7)
-        # Pad / expand into 64-dimensional quantum state
         q_state = np.zeros((1, 64), dtype=complex)
         for i in range(6):
             q_state[0, 1 << i] = norm_q[0, i]
@@ -254,7 +319,10 @@ class MLService:
         risk_score = int(round(hybrid_prob * 100))
         risk_score = max(1, min(99, risk_score))
 
-        prediction = "Fraud" if risk_score >= 50 else "Not Fraud"
+        prediction = "Fraud" if risk_score >= 50 else "Genuine"
+        pred_class = 1 if prediction == "Fraud" else 0
+        risk_level = "High" if risk_score >= 75 else ("Medium" if risk_score >= 40 else "Low")
+        status = f"{risk_level} Risk"
         confidence = round(max(hybrid_prob, 1.0 - hybrid_prob), 3)
 
         # 8. Dynamic SHAP Feature Attribution
@@ -273,6 +341,10 @@ class MLService:
 
         return {
             "prediction": prediction,
+            "class": pred_class,
+            "risk": risk_level,
+            "risk_level": risk_level,
+            "status": status,
             "risk_score": risk_score,
             "confidence": confidence,
             "fraud_probability": round(hybrid_prob, 4),
@@ -287,12 +359,12 @@ class MLService:
 
     def _compute_shap_attribution(self, data, risk_score, prediction, hybrid_prob):
         """Calculates dynamic feature contributions based on real transaction deviations."""
-        amount = float(data.get("amount", 0) or 0)
-        avg_spending = max(1.0, float(data.get("average_spending", 150) or 150))
+        amount = float(data.get("amount") or data.get("amount_inr") or 0)
+        avg_spending = max(1.0, float(data.get("average_spending") or data.get("average_spending_inr") or 150))
         freq = float(data.get("transaction_frequency", 1) or 1)
-        dist = float(data.get("distance_from_previous_location", 0) or 0)
-        device = str(data.get("device_type", "")).lower()
-        merchant = str(data.get("merchant_category", "")).lower()
+        dist = float(data.get("distance_from_previous_location") or data.get("distance_from_previous_location_km") or 0)
+        device = str(data.get("device_type", data.get("device", ""))).lower()
+        merchant = str(data.get("merchant_category", data.get("merchant", ""))).lower()
 
         ratio = amount / avg_spending
         
