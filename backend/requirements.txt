@@ -12,3 +12,4 @@ h5py>=3.8
 joblib>=1.2
 keras>=3.0
 torch>=2.0
+gunicorn
